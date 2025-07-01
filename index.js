@@ -7,17 +7,17 @@ const {
 const fs = require("fs-extra");
 const pino = require("pino");
 const path = require("path");
+const qrcode = require("qrcode-terminal"); // 🟢 Tambahkan untuk tampilkan QR
 
-const logGroupEvent = require("./logGroup"); // kalau kamu pakai, opsional
+const logGroupEvent = require("./logGroup"); // opsional jika digunakan
+const groupHandler = require("./group");
+const privateHandler = require("./private");
 
-const OWNER = ["6282333014459"]; // Ganti nomor owner
+const OWNER = ["6282333014459"]; // Ganti dengan nomor owner
 
 const fiturPath = "./fitur.json";
 const fitur = fs.existsSync(fiturPath) ? JSON.parse(fs.readFileSync(fiturPath)) : {};
 const simpanFitur = () => fs.writeFileSync(fiturPath, JSON.stringify(fitur, null, 2));
-
-const groupHandler = require("./group");
-const privateHandler = require("./private");
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
@@ -25,26 +25,13 @@ async function startBot() {
 
   const sock = makeWASocket({
     version,
-    logger: pino({ level: "silent" }),
+    logger: pino({ level: "info" }), // ⬅️ Ganti dari 'silent' agar QR muncul
     auth: state
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  // ✅ Update nama grup otomatis jika diganti
-  sock.ev.on("groups.update", async updates => {
-    for (const update of updates) {
-      const id = update.id;
-      if (!fitur[id]) continue;
-
-      if (update.subject) {
-        fitur[id].nama_grup = update.subject;
-        simpanFitur();
-      }
-    }
-  });
-
-  // ✅ Welcome & Leave
+  // ✅ Welcome / Leave
   sock.ev.on("group-participants.update", async ({ id, participants, action }) => {
     if (!fitur[id]?.welcome) return;
     const user = participants[0];
@@ -53,6 +40,18 @@ async function startBot() {
       await sock.sendMessage(id, { text: `👋 Selamat datang @${name}!`, mentions: [user] });
     } else if (action === "remove") {
       await sock.sendMessage(id, { text: `👋 Selamat tinggal @${name}!`, mentions: [user] });
+    }
+  });
+
+  // ✅ Update nama grup otomatis
+  sock.ev.on("groups.update", async updates => {
+    for (const update of updates) {
+      const id = update.id;
+      if (!fitur[id]) continue;
+      if (update.subject) {
+        fitur[id].nama_grup = update.subject;
+        simpanFitur();
+      }
     }
   });
 
@@ -85,8 +84,12 @@ async function startBot() {
     }
   });
 
-  // ✅ Koneksi handler
-  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+  // ✅ Koneksi dan QR
+  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      qrcode.generate(qr, { small: true }); // 🟢 Tampilkan QR ke Termux
+    }
+
     if (connection === "close") {
       const reason = lastDisconnect?.error?.output?.statusCode;
       if (reason !== DisconnectReason.loggedOut) {
@@ -96,6 +99,7 @@ async function startBot() {
         console.log("❌ BOT logged out");
       }
     }
+
     if (connection === "open") {
       console.log("✅ Bot Udah Aktif Sayang....");
     }
