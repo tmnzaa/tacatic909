@@ -11,7 +11,8 @@ const qrcode = require("qrcode-terminal");
 
 const groupHandler = require("./group");
 const privateHandler = require("./private");
-const OWNER = ["6282333014459"];
+
+const OWNER = ["6282333014459"]; // Ganti nomor owner kamu
 
 const fiturPath = "./fitur.json";
 const fitur = fs.existsSync(fiturPath) ? JSON.parse(fs.readFileSync(fiturPath)) : {};
@@ -23,14 +24,18 @@ async function startBot() {
 
   const sock = makeWASocket({
     version,
-    printQRInTerminal: true, // ✅ QR otomatis muncul tanpa qrcode-terminal
     logger: pino({ level: "silent" }),
     auth: state
   });
 
   sock.ev.on("creds.update", saveCreds);
 
+  // ✅ Tampilkan QR di Termux (bukan pakai printQRInTerminal lagi)
   sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      qrcode.generate(qr, { small: true });
+    }
+
     if (connection === "open") {
       console.log("✅ Bot aktif sayang...");
     } else if (connection === "close") {
@@ -44,6 +49,7 @@ async function startBot() {
     }
   });
 
+  // ✅ Welcome / Leave
   sock.ev.on("group-participants.update", async ({ id, participants, action }) => {
     if (!fitur[id]?.welcome) return;
     const user = participants[0];
@@ -54,6 +60,7 @@ async function startBot() {
     await sock.sendMessage(id, { text, mentions: [user] });
   });
 
+  // ✅ Update nama grup otomatis
   sock.ev.on("groups.update", async updates => {
     for (const update of updates) {
       const id = update.id;
@@ -65,6 +72,7 @@ async function startBot() {
     }
   });
 
+  // ✅ Handle pesan masuk
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
