@@ -4,16 +4,14 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion
 } = require("@whiskeysockets/baileys");
+
 const fs = require("fs-extra");
 const pino = require("pino");
-const path = require("path");
-const qrcode = require("qrcode-terminal"); // 🟢 Tambahkan untuk tampilkan QR
+const qrcode = require("qrcode-terminal");
 
-const logGroupEvent = require("./logGroup"); // opsional jika digunakan
 const groupHandler = require("./group");
 const privateHandler = require("./private");
-
-const OWNER = ["6282333014459"]; // Ganti dengan nomor owner
+const OWNER = ["6282333014459"];
 
 const fiturPath = "./fitur.json";
 const fitur = fs.existsSync(fiturPath) ? JSON.parse(fs.readFileSync(fiturPath)) : {};
@@ -25,25 +23,37 @@ async function startBot() {
 
   const sock = makeWASocket({
     version,
-    logger: pino({ level: "info" }), // ⬅️ Ganti dari 'silent' agar QR muncul
+    printQRInTerminal: true, // ✅ QR otomatis muncul tanpa qrcode-terminal
+    logger: pino({ level: "silent" }),
     auth: state
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  // ✅ Welcome / Leave
+  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+    if (connection === "open") {
+      console.log("✅ Bot aktif sayang...");
+    } else if (connection === "close") {
+      const reason = lastDisconnect?.error?.output?.statusCode;
+      if (reason !== DisconnectReason.loggedOut) {
+        console.log("🔁 Reconnecting...");
+        startBot();
+      } else {
+        console.log("❌ BOT logged out");
+      }
+    }
+  });
+
   sock.ev.on("group-participants.update", async ({ id, participants, action }) => {
     if (!fitur[id]?.welcome) return;
     const user = participants[0];
     const name = user.split("@")[0];
-    if (action === "add") {
-      await sock.sendMessage(id, { text: `👋 Selamat datang @${name}!`, mentions: [user] });
-    } else if (action === "remove") {
-      await sock.sendMessage(id, { text: `👋 Selamat tinggal @${name}!`, mentions: [user] });
-    }
+    const text = action === "add"
+      ? `👋 Selamat datang @${name}!`
+      : `👋 Selamat tinggal @${name}!`;
+    await sock.sendMessage(id, { text, mentions: [user] });
   });
 
-  // ✅ Update nama grup otomatis
   sock.ev.on("groups.update", async updates => {
     for (const update of updates) {
       const id = update.id;
@@ -55,7 +65,6 @@ async function startBot() {
     }
   });
 
-  // ✅ Handle pesan masuk
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
@@ -81,27 +90,6 @@ async function startBot() {
       });
     } else {
       await privateHandler({ sock, msg, from, sender, body, command });
-    }
-  });
-
-  // ✅ Koneksi dan QR
-  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
-    if (qr) {
-      qrcode.generate(qr, { small: true }); // 🟢 Tampilkan QR ke Termux
-    }
-
-    if (connection === "close") {
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      if (reason !== DisconnectReason.loggedOut) {
-        console.log("🔁 Reconnecting...");
-        startBot();
-      } else {
-        console.log("❌ BOT logged out");
-      }
-    }
-
-    if (connection === "open") {
-      console.log("✅ Bot Udah Aktif Sayang....");
     }
   });
 }
